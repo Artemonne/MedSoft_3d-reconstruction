@@ -77,7 +77,9 @@ def test_same_series_different_frames_are_separate_candidates(ct_factory, tmp_pa
     pixels = np.zeros((2, 2), dtype=np.int16)
     ct_factory("a.dcm", pixels, current_frame_uid=generate_uid())
     ct_factory("b.dcm", pixels, current_frame_uid=generate_uid())
-    assert len(discover_series([tmp_path])) == 2
+    candidates = discover_series([tmp_path])
+    assert len(candidates) == 2
+    assert len({candidate.display_name for candidate in candidates}) == 2
 
 
 def test_volume_size_limit_prevents_unbounded_allocation(ct_factory, tmp_path, monkeypatch):

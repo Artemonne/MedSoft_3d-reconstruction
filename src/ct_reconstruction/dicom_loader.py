@@ -29,7 +29,15 @@ class SeriesCandidate:
     @property
     def display_name(self) -> str:
         text = self.description.strip() or "Без описания"
-        return f"{text} — {len(self.files)} срезов"
+        # Descriptions and slice counts are commonly identical for multiple
+        # reconstructions.  UID suffixes make every dialog entry unambiguous
+        # without exposing patient demographics.
+        series_suffix = self.series_instance_uid[-12:]
+        frame_suffix = self.frame_of_reference_uid[-12:]
+        return (
+            f"{text} — {len(self.files)} срезов "
+            f"[series …{series_suffix}; frame …{frame_suffix}]"
+        )
 
 
 def expand_input_paths(paths: Iterable[str | Path]) -> tuple[Path, ...]:

@@ -7,7 +7,7 @@ import threading
 from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QInputDialog, QLabel, QMainWindow, QMessageBox, QPushButton, QSlider,
+    QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QSlider,
     QSpinBox, QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
@@ -38,6 +38,9 @@ class MainWindow(QMainWindow):
         self.seed_zyx: tuple[int, int, int] | None = None
         self._segmentation_version = 0
         self._volume_version = 0
+        self._closing = False
+        self._original_mesh_metrics: dict[str, object] | None = None
+        self._active_mesh_metrics: dict[str, object] | None = None
         self._build_ui()
 
         self.threshold_timer = QTimer(self)
@@ -65,7 +68,9 @@ class MainWindow(QMainWindow):
         self.metadata_labels: dict[str, QLabel] = {}
         for key, title in (
             ("study", "Исследование"), ("series", "Серия"), ("date", "Дата"),
-            ("patient", "Пациент"), ("patient_id", "ID пациента"),
+            ("modality", "Модальность"), ("patient", "Пациент"),
+            ("patient_id", "ID пациента"), ("patient_birth", "Дата рождения"),
+            ("patient_sex", "Пол"),
             ("spacing", "Spacing, мм"), ("slices", "Срезов"),
         ):
             label = QLabel("Нет данных")
@@ -80,12 +85,13 @@ class MainWindow(QMainWindow):
         self.threshold.setRange(-2048, 4096)
         self.threshold.setValue(400)
         self.threshold.setSuffix(" HU")
-        self.threshold.valueChanged.connect(lambda: self.threshold_timer.start())
+        self.threshold.valueChanged.connect(self._threshold_changed)
         segment_form.addRow("Порог ≥", self.threshold)
         self.tolerance = QDoubleSpinBox()
         self.tolerance.setRange(0, 4096)
         self.tolerance.setValue(50)
         self.tolerance.setSuffix(" HU")
+        self.tolerance.valueChanged.connect(self._region_parameters_changed)
         segment_form.addRow("Перепад", self.tolerance)
         self.region_button = QPushButton("Region Growing от seed")
         self.region_button.clicked.connect(self.recalculate_region)
@@ -152,6 +158,12 @@ class MainWindow(QMainWindow):
         splitter.setSizes([380, 1020])
 
         self.setStatusBar(QStatusBar())
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setFixedWidth(140)
+        self.progress_bar.hide()
+        self.statusBar().addPermanentWidget(self.progress_bar)
         self.statusBar().showMessage("Готово. Выберите папку с DICOM-срезами.")
         self._update_actions()
 
@@ -181,6 +193,7 @@ class MainWindow(QMainWindow):
     def _volume_loaded(self, volume: CTVolume) -> None:
         self.volume = volume
         self.seed_zyx = None
+        self.seed_label.setText("Seed не выбран")
         self._invalidate_segmentation()
         self._populate_metadata()
         self.slice_slider.setRange(0, volume.data_hu.shape[0] - 1)
@@ -195,8 +208,13 @@ class MainWindow(QMainWindow):
         self.metadata_labels["study"].setText(study.display(study.study_description))
         self.metadata_labels["series"].setText(study.display(study.series_description))
         self.metadata_labels["date"].setText(study.display(study.study_date))
+        self.metadata_labels["modality"].setText(study.display(study.modality))
         self.metadata_labels["patient"].setText(study.display(study.patient_name))
         self.metadata_labels["patient_id"].setText(study.display(study.patient_id))
+        self.metadata_labels["patient_birth"].setText(
+            study.display(study.patient_birth_date)
+        )
+        self.metadata_labels["patient_sex"].setText(study.display(study.patient_sex))
         self.metadata_labels["spacing"].setText(f"срез {dz:g}; строка {dr:g}; столбец {dc:g}")
         self.metadata_labels["slices"].setText(str(self.volume.source_count))
 
@@ -213,6 +231,15 @@ class MainWindow(QMainWindow):
             lambda: threshold_segmentation(volume, threshold, version=version),
             self._segmentation_ready,
         )
+
+    def _threshold_changed(self) -> None:
+        if self.volume is not None:
+            self._invalidate_segmentation()
+        self.threshold_timer.start()
+
+    def _region_parameters_changed(self) -> None:
+        if self.segmentation is not None and self.segmentation.method == "region_growing":
+            self._invalidate_segmentation()
 
     def recalculate_region(self) -> None:
         if self.volume is None or self.seed_zyx is None:
@@ -245,8 +272,14 @@ class MainWindow(QMainWindow):
         if self.volume is None:
             return
         z = self.slice_slider.value()
+        invalidate_region = (
+            self.segmentation is not None
+            and self.segmentation.method == "region_growing"
+        )
         self.seed_zyx = (z, y, x)
         self.seed_label.setText(f"{z}, {y}, {x} ({self.volume.data_hu[z, y, x]:g} HU)")
+        if invalidate_region:
+            self._invalidate_segmentation()
         self.update_slice_view()
         self._update_actions()
 
@@ -262,24 +295,37 @@ class MainWindow(QMainWindow):
             return
         segmentation, geometry = self.segmentation, self.volume.geometry
         self.statusBar().showMessage("Marching Cubes…")
-        self._submit(lambda: marching_cubes_surface(segmentation, geometry), self._mesh_ready)
+        self._submit(
+            lambda: self._mesh_and_metrics(
+                marching_cubes_surface(segmentation, geometry)
+            ),
+            self._mesh_ready,
+        )
 
-    def _mesh_ready(self, mesh: Mesh) -> None:
+    @staticmethod
+    def _mesh_and_metrics(mesh: Mesh) -> tuple[Mesh, dict[str, object]]:
+        return mesh, mesh_metrics(mesh)
+
+    def _mesh_ready(self, payload: tuple[Mesh, dict[str, object]]) -> None:
+        mesh, metrics = payload
         if self.segmentation is None or mesh.segmentation_version != self.segmentation.version:
             return
         self.original_mesh = mesh.copy()
         self.active_mesh = mesh
-        self._show_mesh(mesh)
+        self._original_mesh_metrics = metrics
+        self._active_mesh_metrics = metrics
+        self._show_mesh(mesh, metrics)
 
-    def _processed_mesh_ready(self, mesh: Mesh) -> None:
+    def _processed_mesh_ready(self, payload: tuple[Mesh, dict[str, object]]) -> None:
+        mesh, metrics = payload
         if self.segmentation is None or mesh.segmentation_version != self.segmentation.version:
             return
         self.active_mesh = mesh
-        self._show_mesh(mesh)
+        self._active_mesh_metrics = metrics
+        self._show_mesh(mesh, metrics)
 
-    def _show_mesh(self, mesh: Mesh) -> None:
+    def _show_mesh(self, mesh: Mesh, values: dict[str, object]) -> None:
         self.viewer.show_mesh(mesh)
-        values = mesh_metrics(mesh)
         self.metrics_label.setText(
             f"Вершин: {values['vertices']:,}; треугольников: {values['triangles']:,}; "
             f"границ: {values['boundary_edges']}; компонент: {values['components']}"
@@ -290,30 +336,47 @@ class MainWindow(QMainWindow):
     def show_current_mask(self) -> None:
         if self.volume is not None and self.segmentation is not None:
             self.viewer.show_mask(self.volume, self.segmentation)
+            self._update_actions()
 
     def smooth_surface(self) -> None:
         if self.active_mesh is not None:
             source = self.active_mesh
-            self._submit(lambda: smooth_mesh(source), self._processed_mesh_ready)
+            self.statusBar().showMessage("Сглаживание поверхности…")
+            self._submit(
+                lambda: self._mesh_and_metrics(smooth_mesh(source)),
+                self._processed_mesh_ready,
+            )
 
     def decimate_surface(self) -> None:
         if self.active_mesh is not None:
             source = self.active_mesh
-            self._submit(lambda: decimate_mesh(source, reduction=0.5), self._processed_mesh_ready)
+            self.statusBar().showMessage("Упрощение поверхности…")
+            self._submit(
+                lambda: self._mesh_and_metrics(decimate_mesh(source, reduction=0.5)),
+                self._processed_mesh_ready,
+            )
 
     def repair_surface(self) -> None:
         if self.active_mesh is not None:
             source = self.active_mesh
             size, largest = self.hole_size.value(), self.keep_largest.isChecked()
+            self.statusBar().showMessage("Исправление дефектов сетки…")
             self._submit(
-                lambda: repair_mesh(source, hole_size_mm=size, keep_largest_component=largest),
+                lambda: self._mesh_and_metrics(
+                    repair_mesh(
+                        source,
+                        hole_size_mm=size,
+                        keep_largest_component=largest,
+                    )
+                ),
                 self._processed_mesh_ready,
             )
 
     def reset_mesh(self) -> None:
-        if self.original_mesh is not None:
+        if self.original_mesh is not None and self._original_mesh_metrics is not None:
             self.active_mesh = self.original_mesh.copy()
-            self._show_mesh(self.active_mesh)
+            self._active_mesh_metrics = self._original_mesh_metrics
+            self._show_mesh(self.active_mesh, self._active_mesh_metrics)
 
     def export_surface(self) -> None:
         if self.active_mesh is None or self.segmentation is None:
@@ -323,14 +386,15 @@ class MainWindow(QMainWindow):
             return
         filename, _ = QFileDialog.getSaveFileName(self, "Сохранить STL", "model.stl", "STL (*.stl)")
         if filename:
-            try:
-                saved = export_stl(self.active_mesh, filename)
-            except Exception as exc:
-                self._show_error(str(exc))
-            else:
-                self.statusBar().showMessage(f"Сохранено: {saved.name}")
+            mesh = self.active_mesh
+            self.statusBar().showMessage("Экспорт STL…")
+            self._submit(
+                lambda: export_stl(mesh, filename),
+                lambda saved: self.statusBar().showMessage(f"Сохранено: {saved.name}"),
+            )
 
     def _submit(self, function, callback, *, cancel_event: threading.Event | None = None) -> None:
+        self.threshold_timer.stop()
         self._task_token += 1
         token = self._task_token
         runner = TaskRunner(token, function)
@@ -355,39 +419,51 @@ class MainWindow(QMainWindow):
         self._runners.pop(token, None)
         self._cancel_events.pop(token, None)
         self._update_actions()
+        if self._closing and not self._busy_tokens:
+            QTimer.singleShot(0, self.close)
 
     def cancel_current_task(self) -> None:
-        if not self._busy_tokens:
+        if not self._cancel_events:
             return
         for event in self._cancel_events.values():
             event.set()
         self._task_token += 1
-        self.statusBar().showMessage(
-            "Отмена запрошена; нативная операция завершится в фоне, её результат будет отброшен"
-        )
+        self.statusBar().showMessage("Отмена Region Growing запрошена…")
         self._update_actions()
 
     def _invalidate_segmentation(self) -> None:
         self.segmentation = None
         self._invalidate_mesh()
+        self.viewer.clear()
 
     def _invalidate_mesh(self) -> None:
         self.original_mesh = None
         self.active_mesh = None
+        self._original_mesh_metrics = None
+        self._active_mesh_metrics = None
         self.metrics_label.setText("Сетка не построена")
         self._update_actions()
 
     def _update_actions(self) -> None:
-        busy = bool(self._busy_tokens)
+        busy = bool(self._busy_tokens) or self._closing
         self.load_button.setEnabled(not busy)
-        self.cancel_button.setEnabled(busy)
+        self.cancel_button.setEnabled(bool(self._cancel_events) and not self._closing)
+        self.progress_bar.setVisible(bool(self._busy_tokens) and not self._closing)
+        self.threshold.setEnabled(not busy)
+        self.tolerance.setEnabled(not busy)
+        self.slice_slider.setEnabled(not busy and self.volume is not None)
+        self.slice_view.setEnabled(not busy and self.volume is not None)
         self.region_button.setEnabled(not busy and self.volume is not None and self.seed_zyx is not None)
         self.marching_button.setEnabled(not busy and self.segmentation is not None)
-        self.mask_button.setEnabled(self.segmentation is not None)
+        self.mask_button.setEnabled(not busy and self.segmentation is not None)
         mesh_ready = not busy and self.active_mesh is not None
         for widget in (self.smooth_button, self.decimate_button, self.repair_button, self.reset_mesh_button):
             widget.setEnabled(mesh_ready)
-        self.export_button.setEnabled(mesh_ready)
+        self.export_button.setEnabled(
+            mesh_ready and self.viewer.current_mode == "mesh"
+        )
+        self.hole_size.setEnabled(mesh_ready)
+        self.keep_largest.setEnabled(mesh_ready)
 
     def _show_error(self, message: str) -> None:
         self.statusBar().showMessage(message)
@@ -395,6 +471,15 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Ошибка", message)
 
     def closeEvent(self, event) -> None:
-        self.thread_pool.waitForDone(5000)
+        if self._busy_tokens:
+            self._closing = True
+            for cancel_event in self._cancel_events.values():
+                cancel_event.set()
+            self.statusBar().showMessage(
+                "Завершение фоновой операции перед закрытием окна…"
+            )
+            self._update_actions()
+            event.ignore()
+            return
         self.viewer.close_viewer()
         super().closeEvent(event)

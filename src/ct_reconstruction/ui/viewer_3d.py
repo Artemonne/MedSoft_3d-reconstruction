@@ -17,7 +17,10 @@ class Viewer3D(QFrame):
         super().__init__(parent)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        self.plotter = QtInteractor(self)
+        # MSAA and smooth-shading framebuffer paths are unstable on some
+        # Windows OpenGL drivers (duplicated actors/black volume captures).
+        # A deterministic non-MSAA interactor is preferable for this viewer.
+        self.plotter = QtInteractor(self, multi_samples=0)
         layout.addWidget(self.plotter.interactor)
         self.plotter.set_background("#0f172a")
         self.plotter.add_axes()
@@ -51,7 +54,7 @@ class Viewer3D(QFrame):
             opacity=[0.0, 0.85],
             cmap=["#0f172a", "#e2e8f0"],
             clim=(0, 1),
-            shade=True,
+            shade=False,
             show_scalar_bar=False,
         )
         actor.prop.interpolation_type = "nearest"
@@ -67,7 +70,12 @@ class Viewer3D(QFrame):
             return
         self.plotter.clear()
         self.plotter.add_mesh(
-            poly, color="#dbeafe", smooth_shading=True, show_edges=False
+            poly,
+            color="#dbeafe",
+            smooth_shading=False,
+            show_edges=True,
+            edge_color="#64748b",
+            line_width=0.5,
         )
         self.plotter.add_axes()
         self.plotter.reset_camera()

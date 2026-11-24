@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import threading
+
 import numpy as np
+from PySide6.QtCore import QThread
 
 from ct_reconstruction.dicom_loader import discover_series
 from ct_reconstruction.models import CTVolume, StudyInfo, VolumeGeometry
@@ -27,6 +30,7 @@ def make_volume() -> CTVolume:
 def test_main_window_threshold_surface_and_invalidation(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
+    assert window.viewer.plotter.render_window.GetMultiSamples() == 0
     window._volume_loaded(make_volume())
     qtbot.waitUntil(lambda: window.viewer.current_mode == "mask", timeout=5000)
     assert window.segmentation.mask.sum() == 18
@@ -38,8 +42,17 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
     assert window.active_mesh is not None, window.statusBar().currentMessage()
     assert window.viewer.current_mode == "mesh"
     assert window.export_button.isEnabled()
+    window.show_current_mask()
+    assert window.viewer.current_mode == "mask"
+    assert not window.export_button.isEnabled()
+    window.reset_mesh()
+    assert window.viewer.current_mode == "mesh"
+    assert window.export_button.isEnabled()
 
     window.threshold.setValue(700)
+    assert window.segmentation is None
+    assert window.active_mesh is None
+    assert not window.export_button.isEnabled()
     qtbot.wait(350)
     qtbot.waitUntil(lambda: window.segmentation is not None and window.segmentation.mask.sum() == 0, timeout=5000)
     assert window.active_mesh is None
@@ -54,6 +67,10 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
         timeout=5000,
     )
     assert window.segmentation.mask.sum() == 18
+
+    window.tolerance.setValue(1)
+    assert window.segmentation is None
+    assert window.active_mesh is None
 
 
 def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factory, tmp_path):
@@ -73,3 +90,83 @@ def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factor
     assert window.volume.data_hu[0, 0, 0] == 1
     assert window.metadata_labels["slices"].text() == "2"
     assert window.metadata_labels["patient"].text() == "Test^Anonymous"
+    assert window.metadata_labels["modality"].text() == "CT"
+    assert window.metadata_labels["patient_birth"].text() == "Нет данных"
+    assert window.metadata_labels["patient_sex"].text() == "Нет данных"
+
+
+def test_busy_operation_disables_parameters_and_pending_threshold(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._volume_loaded(make_volume())
+    qtbot.waitUntil(lambda: not window._busy_tokens, timeout=5000)
+
+    window.threshold.setValue(500)
+    release = threading.Event()
+    window._submit(lambda: release.wait(2), lambda _result: None)
+    assert not window.threshold_timer.isActive()
+    assert not window.threshold.isEnabled()
+    assert not window.tolerance.isEnabled()
+    assert not window.slice_slider.isEnabled()
+    assert not window.slice_view.isEnabled()
+    assert not window.progress_bar.isHidden()
+    assert not window.cancel_button.isEnabled()
+    release.set()
+    qtbot.waitUntil(lambda: not window._busy_tokens, timeout=5000)
+
+
+def test_mesh_metrics_and_stl_export_run_outside_gui_thread(
+    qtbot, monkeypatch, tmp_path
+):
+    import ct_reconstruction.ui.main_window as main_window_module
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._volume_loaded(make_volume())
+    qtbot.waitUntil(lambda: window.segmentation is not None, timeout=5000)
+    gui_thread = QThread.currentThread()
+    metric_threads: list[QThread] = []
+    export_threads: list[QThread] = []
+    real_metrics = main_window_module.mesh_metrics
+    real_export = main_window_module.export_stl
+
+    def tracked_metrics(mesh):
+        metric_threads.append(QThread.currentThread())
+        return real_metrics(mesh)
+
+    def tracked_export(mesh, path):
+        export_threads.append(QThread.currentThread())
+        return real_export(mesh, path)
+
+    monkeypatch.setattr(main_window_module, "mesh_metrics", tracked_metrics)
+    monkeypatch.setattr(main_window_module, "export_stl", tracked_export)
+    window.build_surface()
+    qtbot.waitUntil(lambda: window.active_mesh is not None, timeout=5000)
+    assert metric_threads and all(thread is not gui_thread for thread in metric_threads)
+
+    destination = tmp_path / "background.stl"
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getSaveFileName",
+        lambda *args: (str(destination), "STL (*.stl)"),
+    )
+    window.export_surface()
+    qtbot.waitUntil(lambda: destination.is_file() and not window._busy_tokens, timeout=5000)
+    assert export_threads and all(thread is not gui_thread for thread in export_threads)
+
+
+def test_close_waits_for_worker_without_destroying_viewer(qtbot):
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window.show()
+    release = threading.Event()
+    window._submit(lambda: release.wait(2), lambda _result: None)
+    qtbot.waitUntil(lambda: bool(window._busy_tokens), timeout=1000)
+
+    assert not window.close()
+    assert window._closing
+    assert window.isVisible()
+    assert not window.cancel_button.isEnabled()
+
+    release.set()
+    qtbot.waitUntil(lambda: not window.isVisible(), timeout=5000)
