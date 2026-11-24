@@ -1,0 +1,53 @@
+# Python environments (kept locally for development and defence)
+.venv/
+.venv-*/
+venv/
+env/
+.conda/
+
+# Python and test/tool caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+.nox/
+.hypothesis/
+.ipynb_checkpoints/
+.coverage
+htmlcov/
+
+# Packaging and generated metadata
+build/
+dist/
+*.egg-info/
+
+# Editors and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Local logs, scratch files and configurations
+tmp/
+temp/
+*.log
+*.tmp
+*.bak
+*.swp
+*~
+.env
+.env.*
+!.env.example
+*.local
+
+# Generated medical/mesh data: never commit patient-derived artifacts
+*.dcm
+*.dicom
+*.stl
+*.obj
+*.ply
+test-data/
+private-data/
