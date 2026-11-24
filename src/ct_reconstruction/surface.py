@@ -93,5 +93,9 @@ def mesh_metrics(mesh: Mesh) -> dict[str, object]:
         "non_manifold_edges": int(non_manifold.n_cells),
         "components": int(region_ids.max() + 1) if region_ids.size else 0,
         "bounds": tuple(float(value) for value in poly.bounds),
-        "volume_mm3": float(poly.volume) if boundary.n_cells == 0 else None,
+        "volume_mm3": (
+            float(poly.volume)
+            if boundary.n_cells == 0 and non_manifold.n_cells == 0
+            else None
+        ),
     }

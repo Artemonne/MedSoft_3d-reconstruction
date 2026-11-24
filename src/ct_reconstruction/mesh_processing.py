@@ -11,12 +11,15 @@ from .errors import MeshError
 from .models import Mesh
 from .surface import from_pyvista, mesh_metrics, to_pyvista
 
+_MIN_DECIMATABLE_COMPONENT_FACES = 500
+
 
 def smooth_mesh(
     mesh: Mesh, *, iterations: int = 20, relaxation: float = 0.01
 ) -> Mesh:
     if iterations < 1 or not 0 < relaxation <= 1:
         raise MeshError("Некорректные параметры сглаживания")
+    before = mesh_metrics(mesh)
     poly = to_pyvista(mesh)
     result = poly.smooth(
         n_iter=iterations,
@@ -28,28 +31,142 @@ def smooth_mesh(
         result, source=mesh, operation=f"smooth({iterations},{relaxation:g})"
     )
     result_metrics = _ensure_usable(processed)
-    _ensure_topology_preserved(mesh, result_metrics)
+    _ensure_topology_preserved(before, result_metrics)
     return processed
 
 
 def decimate_mesh(mesh: Mesh, *, reduction: float = 0.5) -> Mesh:
     if not 0 < reduction < 1:
         raise MeshError("Доля упрощения должна находиться между 0 и 1")
+    before = mesh_metrics(mesh)
     poly = to_pyvista(mesh)
-    result = poly.decimate_pro(
-        reduction,
-        preserve_topology=True,
-        splitting=False,
-        boundary_vertex_deletion=False,
-    )
+    if before["non_manifold_edges"]:
+        result = _decimate_manifold_components(poly, reduction)
+    else:
+        result = poly.decimate_pro(
+            reduction,
+            preserve_topology=True,
+            splitting=False,
+            boundary_vertex_deletion=False,
+        )
     processed = from_pyvista(
         result, source=mesh, operation=f"decimate({reduction:g})"
     )
     result_metrics = _ensure_usable(processed)
-    _ensure_topology_preserved(mesh, result_metrics)
+    _ensure_topology_preserved(before, result_metrics)
     if len(processed.faces) >= len(mesh.faces):
         raise MeshError("Упрощение не уменьшило число треугольников")
     return processed
+
+
+def _decimate_manifold_components(poly, reduction: float):
+    """Decimate only components that contain no non-manifold edge.
+
+    VTK's decimators can multiply existing non-manifold junctions even with
+    ``preserve_topology=True``.  Components containing such junctions are kept
+    byte-for-byte topologically intact; the requested reduction is applied to
+    the remaining components as far as their triangle count permits.
+    """
+    import pyvista as pv
+    from vtkmodules.vtkFiltersCore import vtkAppendPolyData
+
+    connected = poly.connectivity()
+    faces = np.asarray(connected.faces, dtype=np.int64).reshape(-1, 4)[:, 1:]
+    region_ids = np.asarray(connected.cell_data["RegionId"], dtype=np.int64)
+    face_ids = np.arange(len(faces), dtype=np.int64)
+    edges = np.sort(
+        np.vstack((faces[:, (0, 1)], faces[:, (1, 2)], faces[:, (2, 0)])),
+        axis=1,
+    )
+    edge_face_ids = np.tile(face_ids, 3)
+    order = np.lexsort((edges[:, 1], edges[:, 0]))
+    sorted_edges = edges[order]
+    _, first, counts = np.unique(
+        sorted_edges, axis=0, return_index=True, return_counts=True
+    )
+    non_manifold_groups = np.flatnonzero(counts > 2)
+    if not non_manifold_groups.size:
+        return poly.decimate_pro(
+            reduction,
+            preserve_topology=True,
+            splitting=False,
+            boundary_vertex_deletion=False,
+        )
+    incident_faces = np.concatenate(
+        [
+            edge_face_ids[order[start : start + counts[group]]]
+            for group, start in zip(non_manifold_groups, first[non_manifold_groups])
+        ]
+    )
+    unsafe_regions = np.unique(region_ids[incident_faces])
+    region_sizes = np.bincount(region_ids)
+    all_regions = np.arange(len(region_sizes), dtype=np.int64)
+    safe_regions = all_regions[~np.isin(all_regions, unsafe_regions)]
+    # Tiny disconnected islands frequently collapse completely under VTK's
+    # decimator.  Keeping them untouched preserves the exact component count.
+    decimatable_regions = safe_regions[
+        region_sizes[safe_regions] >= _MIN_DECIMATABLE_COMPONENT_FACES
+    ]
+    if not decimatable_regions.size:
+        raise MeshError(
+            "Упрощение невозможно без ухудшения non-manifold компонент"
+        )
+    requested_removed = reduction * len(faces)
+    decimatable_faces = int(region_sizes[decimatable_regions].sum())
+    safe_reduction = min(requested_removed / decimatable_faces, 0.95)
+    if safe_reduction <= 0:
+        raise MeshError("Недостаточно manifold-компонент для безопасного упрощения")
+
+    decimatable_mask = np.isin(region_ids, decimatable_regions)
+    untouched_ids = np.flatnonzero(~decimatable_mask)
+    appender = vtkAppendPolyData()
+    untouched = (
+        connected.extract_cells(untouched_ids)
+        .extract_surface(algorithm="dataset_surface")
+        .triangulate()
+    )
+    appender.AddInputData(untouched)
+
+    cells_by_region = np.argsort(region_ids, kind="stable")
+    offsets = np.concatenate(([0], np.cumsum(region_sizes)))
+    for region in decimatable_regions:
+        cell_ids = cells_by_region[offsets[region] : offsets[region + 1]]
+        component = (
+            connected.extract_cells(cell_ids)
+            .extract_surface(algorithm="dataset_surface")
+            .triangulate()
+        )
+        selected = component
+        attempted_reduction = safe_reduction
+        for _attempt in range(6):
+            candidate = component.decimate_pro(
+                attempted_reduction,
+                preserve_topology=True,
+                splitting=False,
+                boundary_vertex_deletion=False,
+            )
+            if (
+                candidate.n_cells < component.n_cells
+                and _is_closed_manifold(candidate)
+            ):
+                selected = candidate
+                break
+            attempted_reduction *= 0.5
+        appender.AddInputData(selected)
+    appender.Update()
+    return pv.wrap(appender.GetOutput()).triangulate()
+
+
+def _is_closed_manifold(poly) -> bool:
+    faces = np.asarray(poly.faces, dtype=np.int64).reshape(-1, 4)[:, 1:]
+    if not len(faces):
+        return False
+    edges = np.sort(
+        np.vstack((faces[:, (0, 1)], faces[:, (1, 2)], faces[:, (2, 0)])),
+        axis=1,
+    )
+    _unique, counts = np.unique(edges, axis=0, return_counts=True)
+    return bool(np.all(counts == 2))
 
 
 def _repair_worker(
@@ -129,6 +246,12 @@ def repair_mesh(
     operation = f"repair(hole={hole_size_mm:g},largest={keep_largest_component})"
     repaired = Mesh(vertices, faces, mesh.segmentation_version, [*mesh.operations, operation])
     after = _ensure_usable(repaired)
+    if after["boundary_edges"] > before["boundary_edges"]:
+        raise MeshError("Repair увеличил число открытых граничных рёбер")
+    if after["non_manifold_edges"] > before["non_manifold_edges"]:
+        raise MeshError("Repair увеличил число non-manifold рёбер")
+    if after["components"] > before["components"]:
+        raise MeshError("Repair увеличил число связных компонент")
     repaired_boundaries = after["boundary_edges"] < before["boundary_edges"]
     repaired_non_manifold = after["non_manifold_edges"] < before["non_manifold_edges"]
     removed_components = (
@@ -169,16 +292,15 @@ def _ensure_usable(mesh: Mesh) -> dict[str, object]:
     metrics = mesh_metrics(mesh)
     if metrics["vertices"] < 3 or metrics["triangles"] < 1:
         raise MeshError("Операция вернула пустую сетку")
-    if metrics["non_manifold_edges"]:
-        raise MeshError("После операции появились non-manifold рёбра")
     return metrics
 
 
 def _ensure_topology_preserved(
-    source: Mesh, result_metrics: dict[str, object]
+    before: dict[str, object], result_metrics: dict[str, object]
 ) -> None:
-    before = mesh_metrics(source)
     if result_metrics["boundary_edges"] != before["boundary_edges"]:
         raise MeshError("Операция изменила число открытых граничных рёбер")
     if result_metrics["components"] != before["components"]:
         raise MeshError("Операция изменила число связных компонент")
+    if result_metrics["non_manifold_edges"] > before["non_manifold_edges"]:
+        raise MeshError("Операция добавила non-manifold рёбра")

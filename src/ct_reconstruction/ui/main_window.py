@@ -7,8 +7,8 @@ import threading
 from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
-    QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QSlider,
-    QSpinBox, QSplitter, QStatusBar, QVBoxLayout, QWidget,
+    QInputDialog, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton,
+    QScrollArea, QSlider, QSpinBox, QSplitter, QStatusBar, QVBoxLayout, QWidget,
 )
 
 from ..dicom_loader import SeriesCandidate, discover_series, load_series
@@ -56,8 +56,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(splitter)
 
         controls = QWidget()
-        controls.setMinimumWidth(350)
-        controls.setMaximumWidth(430)
+        controls.setMinimumWidth(330)
         panel = QVBoxLayout(controls)
         self.load_button = QPushButton("Загрузить папку DICOM…")
         self.load_button.clicked.connect(self.choose_directory)
@@ -108,7 +107,7 @@ class MainWindow(QMainWindow):
         self.mask_button.clicked.connect(self.show_current_mask)
         self.smooth_button = QPushButton("Сгладить")
         self.smooth_button.clicked.connect(self.smooth_surface)
-        self.decimate_button = QPushButton("Упростить на 50%")
+        self.decimate_button = QPushButton("Цель: упростить на 50%")
         self.decimate_button.clicked.connect(self.decimate_surface)
         repair_row = QHBoxLayout()
         self.hole_size = QDoubleSpinBox()
@@ -129,6 +128,7 @@ class MainWindow(QMainWindow):
         surface_layout.addWidget(self.reset_mesh_button)
         self.metrics_label = QLabel("Сетка не построена")
         self.metrics_label.setWordWrap(True)
+        self.metrics_label.setMinimumHeight(72)
         surface_layout.addWidget(self.metrics_label)
         panel.addWidget(surface_box)
 
@@ -139,7 +139,12 @@ class MainWindow(QMainWindow):
         self.cancel_button.clicked.connect(self.cancel_current_task)
         panel.addWidget(self.cancel_button)
         panel.addStretch(1)
-        splitter.addWidget(controls)
+        controls_scroll = QScrollArea()
+        controls_scroll.setWidgetResizable(True)
+        controls_scroll.setMinimumWidth(350)
+        controls_scroll.setMaximumWidth(450)
+        controls_scroll.setWidget(controls)
+        splitter.addWidget(controls_scroll)
 
         views = QSplitter(Qt.Orientation.Vertical)
         self.viewer = Viewer3D()
@@ -320,17 +325,41 @@ class MainWindow(QMainWindow):
         mesh, metrics = payload
         if self.segmentation is None or mesh.segmentation_version != self.segmentation.version:
             return
+        previous_metrics = self._active_mesh_metrics
         self.active_mesh = mesh
         self._active_mesh_metrics = metrics
-        self._show_mesh(mesh, metrics)
+        status = "Поверхность обработана"
+        if previous_metrics is not None and mesh.operations[-1].startswith("decimate"):
+            before_faces = int(previous_metrics["triangles"])
+            actual = 1.0 - int(metrics["triangles"]) / before_faces
+            status = f"Упрощение завершено: удалено {actual:.1%} треугольников"
+        self._show_mesh(mesh, metrics, previous=previous_metrics, status=status)
 
-    def _show_mesh(self, mesh: Mesh, values: dict[str, object]) -> None:
+    def _show_mesh(
+        self,
+        mesh: Mesh,
+        values: dict[str, object],
+        *,
+        previous: dict[str, object] | None = None,
+        status: str = "Поверхность отображена",
+    ) -> None:
         self.viewer.show_mesh(mesh)
-        self.metrics_label.setText(
+        current = (
             f"Вершин: {values['vertices']:,}; треугольников: {values['triangles']:,}; "
-            f"границ: {values['boundary_edges']}; компонент: {values['components']}"
+            f"границ: {values['boundary_edges']}; non-manifold: "
+            f"{values['non_manifold_edges']}; компонент: {values['components']}"
         )
-        self.statusBar().showMessage("Поверхность отображена")
+        if previous is not None:
+            current += (
+                "\nДо операции — "
+                f"вершин: {previous['vertices']:,}; "
+                f"треугольников: {previous['triangles']:,}; "
+                f"границ: {previous['boundary_edges']}; "
+                f"non-manifold: {previous['non_manifold_edges']}; "
+                f"компонент: {previous['components']}"
+            )
+        self.metrics_label.setText(current)
+        self.statusBar().showMessage(status)
         self._update_actions()
 
     def show_current_mask(self) -> None:

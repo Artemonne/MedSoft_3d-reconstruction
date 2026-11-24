@@ -42,6 +42,11 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
     assert window.active_mesh is not None, window.statusBar().currentMessage()
     assert window.viewer.current_mode == "mesh"
     assert window.export_button.isEnabled()
+    assert "non-manifold" in window.metrics_label.text()
+    window.decimate_surface()
+    qtbot.waitUntil(lambda: not window._busy_tokens, timeout=5000)
+    assert "До операции" in window.metrics_label.text()
+    assert "удалено" in window.statusBar().currentMessage()
     window.show_current_mask()
     assert window.viewer.current_mode == "mask"
     assert not window.export_button.isEnabled()
