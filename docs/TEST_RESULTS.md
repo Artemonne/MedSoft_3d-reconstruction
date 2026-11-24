@@ -1,8 +1,10 @@
 # TEST_RESULTS
 
-Дата: 24.11.2026  
-ОС: Windows 11 x64  
-Python: 3.12.9 (Anaconda CPython, MSC v.1929, 64 bit)  
+Дата: 24.11.2026
+
+ОС: Windows 11 x64
+
+Python: 3.12.9 (Anaconda CPython, MSC v.1929, 64 bit)
 Ветка: `feat/lab5-implementation`
 
 Этот файл содержит только фактически выполненные проверки. `PASS (auto)` не заменяет ручную проверку GUI или реальных данных. Итоговую оценку выставляет преподаватель.

@@ -50,7 +50,7 @@
 
 ## Последний успешный Git-коммит
 
-`d013740 feat(viewer): add interactive reconstruction workflow`
+`baef4ac test: document final verification results`
 
 ## Следующая конкретная задача
 
