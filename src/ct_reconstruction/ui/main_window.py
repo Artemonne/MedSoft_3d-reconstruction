@@ -398,4 +398,3 @@ class MainWindow(QMainWindow):
         self.thread_pool.waitForDone(5000)
         self.viewer.close_viewer()
         super().closeEvent(event)
-

@@ -62,4 +62,3 @@ def test_repair_timeout_preserves_parent_process():
     mesh = model_from_poly(pv.Sphere(radius=5).triangulate())
     with pytest.raises(MeshError, match="время"):
         repair_mesh(mesh, hole_size_mm=1, timeout_seconds=0.0001)
-

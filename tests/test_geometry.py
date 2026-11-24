@@ -57,4 +57,3 @@ def test_rejects_missing_geometry(ct_factory):
     del ds2.ImagePositionPatient
     with pytest.raises(GeometryError, match="ImagePositionPatient"):
         analyze_geometry([ds1, ds2])
-

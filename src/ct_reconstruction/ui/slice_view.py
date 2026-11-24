@@ -69,4 +69,3 @@ class SliceView(QLabel):
         x = min(self._image.width() - 1, int((point.x() - left) * self._image.width() / width))
         y = min(self._image.height() - 1, int((point.y() - top) * self._image.height() / height))
         self.seed_selected.emit(y, x)
-

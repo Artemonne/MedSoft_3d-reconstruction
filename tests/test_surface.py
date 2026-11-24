@@ -44,4 +44,3 @@ def test_full_mask_is_closed_by_padding():
 def test_empty_mask_is_rejected():
     with pytest.raises(MeshError, match="пуста"):
         marching_cubes_surface(segmentation(np.zeros((2, 2, 2))), geometry())
-

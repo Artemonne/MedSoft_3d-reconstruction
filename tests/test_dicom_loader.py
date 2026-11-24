@@ -87,4 +87,3 @@ def test_volume_size_limit_prevents_unbounded_allocation(ct_factory, tmp_path, m
     monkeypatch.setattr(loader, "MAX_VOXELS", 7)
     with pytest.raises(DicomLoadError, match="слишком велик"):
         load_series(discover_series([tmp_path])[0])
-

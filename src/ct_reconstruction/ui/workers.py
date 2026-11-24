@@ -31,4 +31,3 @@ class TaskRunner(QRunnable):
             self.signals.succeeded.emit(self.token, result)
         finally:
             self.signals.finished.emit(self.token)
-

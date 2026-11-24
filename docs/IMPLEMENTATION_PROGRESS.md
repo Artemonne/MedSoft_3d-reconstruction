@@ -65,4 +65,3 @@ python -m venv .venv
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ct_reconstruction
 ```
-

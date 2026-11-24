@@ -1,4 +1,3 @@
 # Install the application and test dependencies from the project metadata:
 #   python -m pip install -e ".[test]"
 -e .[test]
-

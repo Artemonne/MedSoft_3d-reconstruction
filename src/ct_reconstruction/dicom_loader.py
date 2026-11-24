@@ -131,4 +131,3 @@ def load_series(candidate: SeriesCandidate, *, version: int = 1) -> CTVolume:
         source_count=len(datasets),
         version=version,
     )
-

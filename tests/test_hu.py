@@ -45,4 +45,3 @@ def test_rejects_unconfirmed_hu(ct_factory, mutation):
         ds.Modality = "MR"
     with pytest.raises(HounsfieldError):
         convert_slice_to_hu(ds)
-

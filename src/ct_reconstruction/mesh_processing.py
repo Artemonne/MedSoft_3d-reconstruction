@@ -151,4 +151,3 @@ def _ensure_usable(mesh: Mesh) -> None:
         raise MeshError("Операция вернула пустую сетку")
     if metrics["non_manifold_edges"]:
         raise MeshError("После операции появились non-manifold рёбра")
-

@@ -61,4 +61,3 @@ def test_region_growing_rejects_bad_parameters(seed, tolerance, valid, message):
     volume = make_volume([[[0]]], valid)
     with pytest.raises(SegmentationError, match=message):
         region_growing(volume, seed, tolerance, version=1)
-

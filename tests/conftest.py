@@ -77,4 +77,3 @@ def ct_factory(tmp_path: Path):
     create.series_uid = series_uid
     create.frame_uid = frame_uid
     return create
-

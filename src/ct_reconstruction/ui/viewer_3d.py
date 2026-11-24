@@ -75,4 +75,3 @@ class Viewer3D(QFrame):
 
     def close_viewer(self) -> None:
         self.plotter.close()
-

@@ -110,4 +110,3 @@ class Mesh:
             self.vertices_lps_mm.copy(), self.faces.copy(),
             self.segmentation_version, self.operations.copy()
         )
-

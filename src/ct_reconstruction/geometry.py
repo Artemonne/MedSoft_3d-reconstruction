@@ -121,4 +121,3 @@ def analyze_geometry(
         slice_direction_lps=normal.copy(),
     )
     return GeometryResult(tuple(int(index) for index in order_array), geometry)
-

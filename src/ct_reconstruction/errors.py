@@ -23,4 +23,3 @@ class SegmentationError(CTReconstructionError):
 
 class MeshError(CTReconstructionError):
     """A surface operation cannot produce a valid mesh."""
-

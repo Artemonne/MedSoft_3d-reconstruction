@@ -59,4 +59,3 @@ def convert_slice_to_hu(ds: Dataset) -> tuple[NDArray[np.float32], NDArray[np.bo
     hu = hu64.astype(np.float32)
     hu[~valid] = np.nan
     return hu, valid
-

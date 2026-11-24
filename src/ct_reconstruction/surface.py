@@ -93,4 +93,3 @@ def mesh_metrics(mesh: Mesh) -> dict[str, object]:
         "bounds": tuple(float(value) for value in poly.bounds),
         "volume_mm3": float(poly.volume) if boundary.n_cells == 0 else None,
     }
-

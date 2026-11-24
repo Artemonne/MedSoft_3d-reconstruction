@@ -73,4 +73,3 @@ def region_growing(
         volume_version=volume.version,
         version=version,
     )
-

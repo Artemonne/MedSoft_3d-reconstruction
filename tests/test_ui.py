@@ -73,4 +73,3 @@ def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factor
     assert window.volume.data_hu[0, 0, 0] == 1
     assert window.metadata_labels["slices"].text() == "2"
     assert window.metadata_labels["patient"].text() == "Test^Anonymous"
-
