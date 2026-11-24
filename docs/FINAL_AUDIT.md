@@ -85,7 +85,7 @@ Smoothing изменяет координаты, не меняя boundary/compon
 - offscreen GUI не обнаруживал Windows OpenGL framebuffer defect;
 - отсутствовали реальные исследования и end-to-end GUI pipeline.
 
-Добавлены негативные HU/geometry/memory случаи, независимый STL parser, topology assertions, no-op repair, non-manifold processing, stale worker/state tests, GUI folder-picker, настоящий Qt mouse click и проверка VTK TrackballCamera. Финально: **52 passed in 6.40s**; `pip check` — без конфликтов.
+Добавлены негативные HU/geometry/memory случаи, независимый STL parser, topology assertions, no-op repair, non-manifold processing, stale worker/state tests, GUI folder-picker, настоящий Qt mouse click и проверка VTK TrackballCamera. Финально: **52 passed in 5.09s**; `pip check` — без конфликтов.
 
 ## Реальные публичные данные
 

@@ -27,7 +27,7 @@ tmp\clean-venv\Scripts\python.exe -m pytest -q
 51 passed in 9.23s
 ```
 
-После добавления GUI mouse/folder-picker теста выполнен финальный прогон рабочего `.venv`: `52 passed in 6.40s`; `pip check`: `No broken requirements found`. Из `%TEMP%`, без опоры на текущий каталог, импортирован установленный пакет и создано окно `MainWindow` размером 1400x860. Последний видимый запуск также подтвердил `APP_VISIBLE True`, размер 1400x860 и штатное закрытие.
+После добавления GUI mouse/folder-picker теста выполнен финальный прогон рабочего `.venv`: `52 passed in 5.09s`; `pip check`: `No broken requirements found`. Из `%TEMP%`, без опоры на текущий каталог, импортирован установленный пакет и создано окно `MainWindow` размером 1400x860. Последний видимый запуск также подтвердил `APP_VISIBLE True`, размер 1400x860 и штатное закрытие.
 
 Тесты покрывают: разбиение серий по UID/Frame of Reference, сортировку по IOP/IPP, HU rescale и padding, отказ для неподтверждённых HU и непригодной геометрии, oblique LPS-преобразование, threshold, 6-связный Region Growing, Marching Cubes, топологические метрики, repair, независимый разбор binary STL, гонки фоновых задач, folder-picker workflow, координатный Qt mouse click и включённый `vtkInteractorStyleTrackballCamera`.
 
