@@ -6,7 +6,7 @@ import pytest
 from pydicom.uid import generate_uid
 
 import ct_reconstruction.dicom_loader as loader
-from ct_reconstruction.dicom_loader import discover_series, load_series
+from ct_reconstruction.dicom_loader import SeriesCandidate, discover_series, load_series
 from ct_reconstruction.errors import DicomLoadError
 
 
@@ -87,3 +87,50 @@ def test_volume_size_limit_prevents_unbounded_allocation(ct_factory, tmp_path, m
     monkeypatch.setattr(loader, "MAX_VOXELS", 7)
     with pytest.raises(DicomLoadError, match="слишком велик"):
         load_series(discover_series([tmp_path])[0])
+
+
+def test_available_memory_limit_is_checked_before_pixel_decode(
+    ct_factory, tmp_path, monkeypatch
+):
+    pixels = np.zeros((20, 20), dtype=np.int16)
+    ct_factory("a.dcm", pixels, position=(0, 0, 0))
+    ct_factory("b.dcm", pixels, position=(0, 0, 1))
+    full_reads = 0
+    original_read = loader.pydicom.dcmread
+
+    def tracked_read(*args, **kwargs):
+        nonlocal full_reads
+        if not kwargs.get("stop_before_pixels", False):
+            full_reads += 1
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(loader.pydicom, "dcmread", tracked_read)
+    monkeypatch.setattr(loader, "_available_memory_bytes", lambda: 100)
+    with pytest.raises(DicomLoadError, match="Недостаточно свободной памяти"):
+        load_series(discover_series([tmp_path])[0])
+    assert full_reads == 0
+
+
+def test_loader_uses_metadata_pass_then_decodes_slices_one_by_one(
+    ct_factory, tmp_path, monkeypatch
+):
+    pixels = np.zeros((2, 2), dtype=np.int16)
+    ct_factory("a.dcm", pixels, position=(0, 0, 0))
+    ct_factory("b.dcm", pixels, position=(0, 0, 1))
+    candidate = discover_series([tmp_path])[0]
+    calls: list[bool] = []
+    original_read = loader.pydicom.dcmread
+
+    def tracked_read(*args, **kwargs):
+        calls.append(bool(kwargs.get("stop_before_pixels", False)))
+        return original_read(*args, **kwargs)
+
+    monkeypatch.setattr(loader.pydicom, "dcmread", tracked_read)
+    load_series(candidate)
+    assert calls == [True, True, False, False]
+
+
+def test_empty_candidate_is_a_domain_error():
+    candidate = SeriesCandidate("series", "frame", "empty", ())
+    with pytest.raises(DicomLoadError, match="не содержит файлов"):
+        load_series(candidate)

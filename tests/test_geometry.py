@@ -57,3 +57,12 @@ def test_rejects_missing_geometry(ct_factory):
     del ds2.ImagePositionPatient
     with pytest.raises(GeometryError, match="ImagePositionPatient"):
         analyze_geometry([ds1, ds2])
+
+
+def test_invalid_dimensions_are_reported_as_geometry_error(ct_factory):
+    pixels = np.zeros((2, 2), dtype=np.int16)
+    ds1 = pydicom.dcmread(ct_factory("a.dcm", pixels, position=(0, 0, 0)))
+    ds2 = pydicom.dcmread(ct_factory("b.dcm", pixels, position=(0, 0, 2)))
+    ds1.Rows = 0
+    with pytest.raises(GeometryError, match="Rows"):
+        analyze_geometry([ds1, ds2])

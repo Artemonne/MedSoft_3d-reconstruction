@@ -31,6 +31,16 @@ def _vector(ds: Dataset, name: str, length: int) -> np.ndarray:
     return result
 
 
+def _positive_dimension(ds: Dataset, name: str) -> int:
+    try:
+        value = int(getattr(ds, name, 0) or 0)
+    except (TypeError, ValueError) as exc:
+        raise GeometryError(f"Некорректный размер изображения {name}") from exc
+    if value <= 0:
+        raise GeometryError(f"Некорректный размер изображения {name}")
+    return value
+
+
 def analyze_geometry(
     datasets: Sequence[Dataset],
     *,
@@ -44,10 +54,8 @@ def analyze_geometry(
         raise GeometryError("Для 3D-реконструкции требуется минимум два среза")
 
     first = datasets[0]
-    rows = int(getattr(first, "Rows", 0) or 0)
-    columns = int(getattr(first, "Columns", 0) or 0)
-    if rows <= 0 or columns <= 0:
-        raise GeometryError("Некорректные размеры изображения Rows/Columns")
+    rows = _positive_dimension(first, "Rows")
+    columns = _positive_dimension(first, "Columns")
 
     iop = _vector(first, "ImageOrientationPatient", 6)
     column_direction = iop[:3]
@@ -77,8 +85,8 @@ def analyze_geometry(
         raise GeometryError("Отсутствует FrameOfReferenceUID")
 
     for ds in datasets:
-        if int(getattr(ds, "Rows", 0) or 0) != rows or int(
-            getattr(ds, "Columns", 0) or 0
+        if _positive_dimension(ds, "Rows") != rows or _positive_dimension(
+            ds, "Columns"
         ) != columns:
             raise GeometryError("Срезы имеют разные размеры")
         if str(getattr(ds, "FrameOfReferenceUID", "") or "") != frame_uid:

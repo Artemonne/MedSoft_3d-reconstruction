@@ -13,12 +13,13 @@ def _is_confirmed_classic_hu(ds: Dataset) -> bool:
     if str(getattr(ds, "Modality", "")).upper() != "CT":
         return False
     image_type = [str(item).upper() for item in getattr(ds, "ImageType", [])]
-    if image_type and image_type[0] != "ORIGINAL":
+    if not image_type or image_type[0] != "ORIGINAL":
         return False
     if len(image_type) >= 3 and image_type[2] == "LOCALIZER":
         return False
     multi_energy = str(getattr(ds, "MultienergyCTAcquisition", "NO")).upper()
-    return multi_energy in {"", "NO"}
+    rescale_type = str(getattr(ds, "RescaleType", "HU") or "").upper()
+    return multi_energy in {"", "NO"} and rescale_type in {"", "HU"}
 
 
 def convert_slice_to_hu(ds: Dataset) -> tuple[NDArray[np.float32], NDArray[np.bool_]]:
@@ -54,8 +55,13 @@ def convert_slice_to_hu(ds: Dataset) -> tuple[NDArray[np.float32], NDArray[np.bo
         low, high = sorted((padding_low, padding_high))
         valid &= ~((stored >= low) & (stored <= high))
 
-    hu64 = stored.astype(np.float64) * slope + intercept
-    valid &= np.isfinite(hu64)
-    hu = hu64.astype(np.float32)
+    with np.errstate(over="ignore", invalid="ignore"):
+        hu64 = stored.astype(np.float64) * slope + intercept
+    if np.any(valid & ~np.isfinite(hu64)):
+        raise HounsfieldError("Преобразование HU дало бесконечные/нечисловые значения")
+    float32_limit = np.finfo(np.float32).max
+    if np.any(valid & (np.abs(hu64) > float32_limit)):
+        raise HounsfieldError("Значения HU выходят за безопасный диапазон float32")
+    hu = hu64.astype(np.float32, copy=False)
     hu[~valid] = np.nan
     return hu, valid

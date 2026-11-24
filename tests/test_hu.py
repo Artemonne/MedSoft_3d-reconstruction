@@ -32,16 +32,35 @@ def test_per_slice_slope_and_intercept(ct_factory):
     assert hu[0, 0] == -750
 
 
-@pytest.mark.parametrize("mutation", ["missing", "derived", "localizer", "mr"])
+@pytest.mark.parametrize(
+    "mutation", ["missing", "missing_image_type", "derived", "localizer", "mr", "not_hu"]
+)
 def test_rejects_unconfirmed_hu(ct_factory, mutation):
     ds = pydicom.dcmread(ct_factory("bad.dcm", np.zeros((2, 2), dtype=np.int16)))
     if mutation == "missing":
         del ds.RescaleSlope
+    elif mutation == "missing_image_type":
+        del ds.ImageType
     elif mutation == "derived":
         ds.ImageType = ["DERIVED", "PRIMARY", "AXIAL"]
     elif mutation == "localizer":
         ds.ImageType = ["ORIGINAL", "PRIMARY", "LOCALIZER"]
+    elif mutation == "not_hu":
+        ds.RescaleType = "OD"
     else:
         ds.Modality = "MR"
     with pytest.raises(HounsfieldError):
+        convert_slice_to_hu(ds)
+
+
+def test_rejects_values_that_overflow_float32(ct_factory):
+    ds = pydicom.dcmread(
+        ct_factory(
+            "overflow.dcm",
+            np.array([[32767]], dtype=np.int16),
+            slope=1e38,
+            intercept=0,
+        )
+    )
+    with pytest.raises(HounsfieldError, match="float32"):
         convert_slice_to_hu(ds)
