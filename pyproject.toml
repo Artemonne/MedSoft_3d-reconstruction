@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ct-reconstruction-lab5"
+version = "0.1.0"
+description = "Local desktop CT DICOM reconstruction application for laboratory work 5"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "numpy>=2.0,<2.8",
+  "scipy>=1.14,<1.19",
+  "pydicom>=3.0,<3.1",
+  "pylibjpeg>=2.0,<3",
+  "pylibjpeg-libjpeg>=2.3,<3",
+  "pylibjpeg-openjpeg>=2.4,<3",
+  "pyjpegls>=1.5,<2",
+  "scikit-image>=0.25,<0.27",
+  "PySide6>=6.8,<6.13",
+  "QtPy>=2.4,<3",
+  "pyvista>=0.46,<0.50",
+  "pyvistaqt>=0.11,<0.15",
+  "vtk>=9.3.1,<9.8; platform_system == 'Windows'",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.3,<10", "pytest-qt>=4.4,<5"]
+
+[project.scripts]
+ct-reconstruction = "ct_reconstruction.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+
