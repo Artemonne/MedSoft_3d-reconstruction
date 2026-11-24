@@ -3,11 +3,11 @@ from __future__ import annotations
 import threading
 
 import numpy as np
-from PySide6.QtCore import QThread
+from PySide6.QtCore import QPoint, QThread, Qt
 
-from ct_reconstruction.dicom_loader import discover_series
 from ct_reconstruction.models import CTVolume, StudyInfo, VolumeGeometry
 from ct_reconstruction.ui.main_window import MainWindow
+from ct_reconstruction.ui.slice_view import SliceView
 
 
 def make_volume() -> CTVolume:
@@ -31,6 +31,9 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
     window = MainWindow()
     qtbot.addWidget(window)
     assert window.viewer.plotter.render_window.GetMultiSamples() == 0
+    interactor = window.viewer.plotter.interactor
+    assert interactor.GetEnabled()
+    assert interactor.GetInteractorStyle().GetClassName() == "vtkInteractorStyleTrackballCamera"
     window._volume_loaded(make_volume())
     qtbot.waitUntil(lambda: window.viewer.current_mode == "mask", timeout=5000)
     assert window.segmentation.mask.sum() == 18
@@ -78,15 +81,23 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
     assert window.active_mesh is None
 
 
-def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factory, tmp_path):
+def test_folder_picker_loads_series_through_background_gui_workflow(
+    qtbot, monkeypatch, ct_factory, tmp_path
+):
+    import ct_reconstruction.ui.main_window as main_window_module
+
     stored = np.array([[1024, 1424], [0, 2000]], dtype=np.int16)
     ct_factory("second.dcm", stored, position=(0, 0, 1), instance=1)
     ct_factory("first.dcm", stored + 1, position=(0, 0, 0), instance=99)
-    candidate = discover_series([tmp_path])[0]
 
     window = MainWindow()
     qtbot.addWidget(window)
-    window._series_discovered((candidate,))
+    monkeypatch.setattr(
+        main_window_module.QFileDialog,
+        "getExistingDirectory",
+        lambda *args: str(tmp_path),
+    )
+    window.choose_directory()
     qtbot.waitUntil(
         lambda: window.volume is not None and window.viewer.current_mode == "mask",
         timeout=5000,
@@ -98,6 +109,25 @@ def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factor
     assert window.metadata_labels["modality"].text() == "CT"
     assert window.metadata_labels["patient_birth"].text() == "Нет данных"
     assert window.metadata_labels["patient_sex"].text() == "Нет данных"
+
+
+def test_slice_view_selects_seed_from_real_mouse_click(qtbot):
+    view = SliceView()
+    qtbot.addWidget(view)
+    view.resize(400, 300)
+    view.show()
+    view.set_slice(np.arange(32, dtype=np.float32).reshape(4, 8))
+    selected: list[tuple[int, int]] = []
+    view.seed_selected.connect(lambda y, x: selected.append((y, x)))
+
+    left, top, width, height = view._display_rect
+    qtbot.mouseClick(
+        view,
+        Qt.MouseButton.LeftButton,
+        pos=QPoint(left + width // 2, top + height // 2),
+    )
+
+    assert selected == [(2, 4)]
 
 
 def test_busy_operation_disables_parameters_and_pending_threshold(qtbot):
