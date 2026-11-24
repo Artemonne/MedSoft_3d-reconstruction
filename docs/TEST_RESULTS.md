@@ -27,9 +27,9 @@ tmp\clean-venv\Scripts\python.exe -m pytest -q
 51 passed in 9.23s
 ```
 
-Из `%TEMP%`, без опоры на текущий каталог, импортирован установленный пакет и создано окно `MainWindow` размером 1400x860. Целевые тесты mesh/UI после последней правки: `13 passed in 5.17s`.
+После добавления GUI mouse/folder-picker теста выполнен финальный прогон рабочего `.venv`: `52 passed in 6.40s`; `pip check`: `No broken requirements found`. Из `%TEMP%`, без опоры на текущий каталог, импортирован установленный пакет и создано окно `MainWindow` размером 1400x860. Последний видимый запуск также подтвердил `APP_VISIBLE True`, размер 1400x860 и штатное закрытие.
 
-Тесты покрывают: разбиение серий по UID/Frame of Reference, сортировку по IOP/IPP, HU rescale и padding, отказ для неподтверждённых HU и непригодной геометрии, oblique LPS-преобразование, threshold, 6-связный Region Growing, Marching Cubes, топологические метрики, repair, независимый разбор binary STL, гонки фоновых задач и инвалидирование устаревших результатов GUI.
+Тесты покрывают: разбиение серий по UID/Frame of Reference, сортировку по IOP/IPP, HU rescale и padding, отказ для неподтверждённых HU и непригодной геометрии, oblique LPS-преобразование, threshold, 6-связный Region Growing, Marching Cubes, топологические метрики, repair, независимый разбор binary STL, гонки фоновых задач, folder-picker workflow, координатный Qt mouse click и включённый `vtkInteractorStyleTrackballCamera`.
 
 ## Реальные обезличенные CT
 
@@ -49,7 +49,7 @@ tmp\clean-venv\Scripts\python.exe -m pytest -q
 | `…132604` | 105 377 | 294 116 | 580 220 | 0 | 57 | 4 682 |
 | `…50427` | 133 270 | 431 954 | 857 236 | 0 | 162 | 7 873 |
 
-Полный pipeline на обеих сериях включал load → threshold → MC → metrics → smooth → topology-safe decimate → binary STL → независимый parser. Для `…132604` итог после упрощения — 496 804 треугольника, для `…50427` — 771 090; boundary/non-manifold/components не ухудшились. Bounds независимого STL parser совпали с исходной сеткой. Пиковый RSS процесса полного pipeline составил 569,4 MiB.
+Финальный повторный pipeline на обеих сериях включал load → threshold → Region Growing → MC → metrics → smooth → topology-safe decimate → binary STL → независимый parser. Серия `…50427`: mask 133 270, MC 857 236 треугольников, после обработки 769 346. Серия `…132604`: mask 105 377, Region Growing 566 voxels; после обработки и keep-largest repair 104 466 треугольников, 1 компонента и 9 non-manifold рёбер. Boundary/components/non-manifold до repair не ухудшились. Triangle count и bounds независимого STL parser совпали с экспортируемой сеткой. Ранее измеренный пиковый RSS полного pipeline — 569,4 MiB.
 
 Это проверка на объёмах по 8,65 млн вокселей, но не стресс-тест предельной серии в сотни миллионов вокселей.
 
@@ -68,17 +68,17 @@ export: real_gui_audit.stl, 5 223 384 bytes
 
 Визуально просмотрены axial CT, threshold/Region Growing маски, mesh, прокрутка панели, метрики до/после и итоговый статус. Исправлены чёрный/повторяющийся framebuffer на Windows (MSAA/shading) и обрезание длинных метрик.
 
-Физические действия мышью через системный драйвер автоматизации выполнить не удалось: канал управления Windows возвращал ошибку подключения. Поэтому реальное ручное вращение/zoom/pan, щелчок seed и системный file dialog остаются `NOT TESTED`; внутренние обработчики и состояния проверены GUI-тестами и видимым сценарием.
+Системный драйвер Windows automation остался недоступен (`native pipe`, `os error 2`). Поэтому физический rotate/zoom/pan человеком остаётся ручной репетицией. При этом координатный Qt mouse click действительно проходит через `SliceView.mousePressEvent`, folder-picker запускает фоновую загрузку, а VTK interactor включён в режиме TrackballCamera.
 
 ## STL во внешнем приложении
 
-Blender, MeshLab, 3D Slicer, Assimp и F3D в системе не найдены. Экспортированный STL успешно открылся установленным Paint 3D и приложение осталось отзывчивым. Геометрию внутри Paint 3D независимо измерить не удалось.
+Blender, MeshLab, 3D Slicer, Assimp и F3D в системе не найдены. Финальный `rider_0073_study_132603_final.stl` успешно открылся установленным Paint 3D; окно имело правильное имя файла и состояние `Responding=True`.
 
-Независимая проверка без PyVista/VTK подтвердила binary STL header/count/size, конечность координат, triangle count и bounds; VTK round-trip также совпал. Поэтому синтаксис и физические размеры доказаны сильнее, чем визуальный внешний просмотр, но пункт внешнего редактора закрыт только частично.
+Независимая проверка без PyVista/VTK подтвердила binary STL header/count/size, конечность координат, triangle count и bounds; VTK round-trip также совпал. Требование экспорта исходного задания закрыто; визуальную репетицию в Paint 3D следует повторить перед защитой.
 
 ## Что не проверено
 
 - Enhanced CT/multi-frame и реальные JPEG/JPEG-LS/JPEG 2000 серии; они не заявлены основным профилем, Enhanced CT отклоняется.
 - Реальная серия с gantry tilt, irregular spacing или несовместимыми orientation; такие данные намеренно отклоняются до реконструкции.
 - Пиковая память на объёме, близком к программному лимиту 300 млн вокселей.
-- Полностью ручное управление мышью и визуальное измерение STL во внешнем CAD/medical viewer.
+- Физический rotate/zoom/pan человеком и визуальная оценка STL человеком; точные шаги приведены в `docs/DEFENSE_CHECKLIST.md`.
