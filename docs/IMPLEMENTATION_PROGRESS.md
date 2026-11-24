@@ -28,7 +28,7 @@
 - Доступен Python 3.12.9 x64.
 - Полный стек установлен в `.venv`; `pip check`: `No broken requirements found`.
 - Offscreen `QApplication` и `QtInteractor` успешно созданы и закрыты.
-- 34 автоматических теста проходят.
+- 35 автоматических тестов проходят.
 - Видимое окно, volume rendering и surface rendering запускались на синтетическом объёме и штатно закрылись с кодом 0.
 - STL повторно прочитан PyVista; грани и физические bounds совпали.
 - Проверены RLE Lossless decode, разделение одинакового SeriesUID по FrameOfReferenceUID, лимит объёма и timeout repair.

@@ -32,7 +32,7 @@ $env:QT_API='pyside6'
 $env:QT_QPA_PLATFORM='offscreen'
 .\.venv\Scripts\python.exe -m pytest -q
 ..................................                                       [100%]
-34 passed in 3.73s
+35 passed in 3.62s
 
 .\.venv\Scripts\python.exe -m pip check
 No broken requirements found.
@@ -76,7 +76,7 @@ Smoke-запуски создавали обычное видимое Windows-о
 |---|---|---|
 | T01 | NOT TESTED | Нет реальной CT-серии для загрузки через диалог. |
 | T02 | PASS (auto) | Перемешаны имена и InstanceNumber; порядок по IPP. |
-| T03 | PASS (auto) / manual NT | Разные SeriesUID дают отдельные кандидаты; диалог выбора вручную не проверен. |
+| T03 | PASS (auto) / manual NT | Разные SeriesUID дают отдельные кандидаты; фоновая загрузка единственного кандидата через GUI проверена, диалог нескольких серий вручную не проверен. |
 | T04 | PASS (auto) / manual NT | Метаданные и spacing проверены синтетикой. |
 | T05 | PASS (auto) | Отсутствующие PatientName/ID отображаются «Нет данных». |
 | T06 | PASS (auto) | SliceThickness=5 мм, шаг=2 мм. |
@@ -85,7 +85,7 @@ Smoke-запуски создавали обычное видимое Windows-о
 | T09 | PASS (auto) | Маска и GUI-state меняются, mesh инвалидируется. |
 | T10 | NOT TESTED | Мышиные rotate/zoom/pan человеком. |
 | T11 | NOT TESTED | Вторая реальная серия отсутствует. |
-| T12 | PASS (auto) / manual NT | Разные seed/tolerance и локальный градиент; GUI click вручную не проверен. |
+| T12 | PASS (auto) / manual NT | Разные seed/tolerance и локальный градиент; GUI-переход от заданного seed к Region Growing проверен, физический щелчок мышью вручную не проверен. |
 | T13 | PASS (auto) | Seed вне массива и в padding отклоняется. |
 | T14 | PASS (auto) / visual partial | Сетка непуста/треугольна; surface render smoke успешен. |
 | T15 | PASS (auto) | Пустая маска объясняется; полная замыкается padding. |

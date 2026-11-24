@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
+from ct_reconstruction.dicom_loader import discover_series
 from ct_reconstruction.models import CTVolume, StudyInfo, VolumeGeometry
 from ct_reconstruction.ui.main_window import MainWindow
 
@@ -43,4 +44,33 @@ def test_main_window_threshold_surface_and_invalidation(qtbot):
     qtbot.waitUntil(lambda: window.segmentation is not None and window.segmentation.mask.sum() == 0, timeout=5000)
     assert window.active_mesh is None
     assert not window.export_button.isEnabled()
+
+    window.select_seed(1, 2)
+    window.tolerance.setValue(0)
+    window.recalculate_region()
+    qtbot.waitUntil(
+        lambda: window.segmentation is not None
+        and window.segmentation.method == "region_growing",
+        timeout=5000,
+    )
+    assert window.segmentation.mask.sum() == 18
+
+
+def test_series_candidate_loads_through_background_gui_workflow(qtbot, ct_factory, tmp_path):
+    stored = np.array([[1024, 1424], [0, 2000]], dtype=np.int16)
+    ct_factory("second.dcm", stored, position=(0, 0, 1), instance=1)
+    ct_factory("first.dcm", stored + 1, position=(0, 0, 0), instance=99)
+    candidate = discover_series([tmp_path])[0]
+
+    window = MainWindow()
+    qtbot.addWidget(window)
+    window._series_discovered((candidate,))
+    qtbot.waitUntil(
+        lambda: window.volume is not None and window.viewer.current_mode == "mask",
+        timeout=5000,
+    )
+    assert window.volume.data_hu.shape == (2, 2, 2)
+    assert window.volume.data_hu[0, 0, 0] == 1
+    assert window.metadata_labels["slices"].text() == "2"
+    assert window.metadata_labels["patient"].text() == "Test^Anonymous"
 
