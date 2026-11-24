@@ -15,6 +15,7 @@ from .geometry import analyze_geometry
 from .hu import convert_slice_to_hu
 from .models import CTVolume, StudyInfo
 
+MAX_VOXELS = 300_000_000
 
 @dataclass(frozen=True, slots=True)
 class SeriesCandidate:
@@ -85,6 +86,7 @@ def _study_info(ds: Dataset) -> StudyInfo:
 
 def load_series(candidate: SeriesCandidate, *, version: int = 1) -> CTVolume:
     datasets: list[Dataset] = []
+    study_uid = ""
     for path in candidate.files:
         try:
             ds = pydicom.dcmread(path, force=False)
@@ -96,8 +98,20 @@ def load_series(candidate: SeriesCandidate, *, version: int = 1) -> CTVolume:
             raise DicomLoadError("Файл не принадлежит выбранной серии")
         if str(getattr(ds, "FrameOfReferenceUID", "") or "") != candidate.frame_of_reference_uid:
             raise DicomLoadError("В серии обнаружен другой FrameOfReferenceUID")
+        current_study_uid = str(getattr(ds, "StudyInstanceUID", "") or "")
+        if not current_study_uid:
+            raise DicomLoadError("Отсутствует StudyInstanceUID")
+        if study_uid and current_study_uid != study_uid:
+            raise DicomLoadError("В выбранном стеке смешаны разные StudyInstanceUID")
+        study_uid = current_study_uid
         datasets.append(ds)
     geometry_result = analyze_geometry(datasets)
+    voxel_count = len(datasets) * int(datasets[0].Rows) * int(datasets[0].Columns)
+    if voxel_count > MAX_VOXELS:
+        gib = voxel_count * 5 / (1024**3)
+        raise DicomLoadError(
+            f"Объём слишком велик для безопасной обработки (минимум около {gib:.1f} ГиБ)"
+        )
     hu_slices: list[np.ndarray] = []
     valid_slices: list[np.ndarray] = []
     for index in geometry_result.order:

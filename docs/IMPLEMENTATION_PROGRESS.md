@@ -28,9 +28,11 @@
 - Доступен Python 3.12.9 x64.
 - Полный стек установлен в `.venv`; `pip check`: `No broken requirements found`.
 - Offscreen `QApplication` и `QtInteractor` успешно созданы и закрыты.
-- 28 автоматических тестов проходят.
+- 34 автоматических теста проходят.
 - Видимое окно, volume rendering и surface rendering запускались на синтетическом объёме и штатно закрылись с кодом 0.
 - STL повторно прочитан PyVista; грани и физические bounds совпали.
+- Проверены RLE Lossless decode, разделение одинакового SeriesUID по FrameOfReferenceUID, лимит объёма и timeout repair.
+- Region Growing реагирует на отмену; результаты остальных отменённых фоновых задач отбрасываются.
 
 ## Не проверено
 
@@ -47,7 +49,7 @@
 
 ## Последний успешный Git-коммит
 
-`a87aac7 feat(mesh): add processing repair and STL export`
+`d013740 feat(viewer): add interactive reconstruction workflow`
 
 ## Следующая конкретная задача
 

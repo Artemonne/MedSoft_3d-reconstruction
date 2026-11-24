@@ -5,7 +5,7 @@ import pytest
 
 from ct_reconstruction.errors import MeshError
 from ct_reconstruction.models import Segmentation, VolumeGeometry
-from ct_reconstruction.surface import marching_cubes_surface, mesh_metrics
+from ct_reconstruction.surface import marching_cubes_surface, mesh_metrics, to_pyvista
 
 
 def geometry():
@@ -29,6 +29,11 @@ def test_marching_cubes_builds_closed_anisotropic_surface():
     assert metrics["boundary_edges"] == 0
     assert metrics["non_manifold_edges"] == 0
     assert metrics["bounds"] == pytest.approx((10.4, 12.8, 20.35, 21.75, 31.25, 33.75))
+    poly = to_pyvista(mesh).compute_normals(cell_normals=True, point_normals=False)
+    centers = poly.cell_centers().points
+    normals = poly.cell_data["Normals"]
+    assert normals[np.argmax(centers[:, 2]), 2] > 0
+    assert normals[np.argmin(centers[:, 2]), 2] < 0
 
 
 def test_full_mask_is_closed_by_padding():

@@ -44,6 +44,14 @@ def test_region_growing_can_reach_voxel_through_another_path():
     assert result.mask.all()
 
 
+def test_region_growing_cancellation_never_publishes_partial_mask():
+    volume = make_volume(np.zeros((4, 4, 4), dtype=np.float32))
+    with pytest.raises(SegmentationError, match="отменено"):
+        region_growing(
+            volume, (0, 0, 0), 0, version=1, cancelled=lambda: True
+        )
+
+
 @pytest.mark.parametrize(
     "seed,tolerance,valid,message",
     [((-1, 0, 0), 1, None, "вне"), ((0, 0, 0), -1, None, "неотрицательной"),

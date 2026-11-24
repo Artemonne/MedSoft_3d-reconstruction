@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from PySide6.QtCore import QThreadPool, QTimer, Qt
 from PySide6.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
@@ -29,6 +30,7 @@ class MainWindow(QMainWindow):
         self._task_token = 0
         self._busy_tokens: set[int] = set()
         self._runners: dict[int, TaskRunner] = {}
+        self._cancel_events: dict[int, threading.Event] = {}
         self.volume: CTVolume | None = None
         self.segmentation: Segmentation | None = None
         self.original_mesh: Mesh | None = None
@@ -127,6 +129,9 @@ class MainWindow(QMainWindow):
         self.export_button = QPushButton("Экспортировать показанную сетку в STL…")
         self.export_button.clicked.connect(self.export_surface)
         panel.addWidget(self.export_button)
+        self.cancel_button = QPushButton("Отменить текущую операцию")
+        self.cancel_button.clicked.connect(self.cancel_current_task)
+        panel.addWidget(self.cancel_button)
         panel.addStretch(1)
         splitter.addWidget(controls)
 
@@ -216,11 +221,15 @@ class MainWindow(QMainWindow):
         self._segmentation_version += 1
         version = self._segmentation_version
         volume, seed, tolerance = self.volume, self.seed_zyx, self.tolerance.value()
+        cancel_event = threading.Event()
         self._invalidate_mesh()
         self.statusBar().showMessage("Region Growing…")
         self._submit(
-            lambda: region_growing(volume, seed, tolerance, version=version),
+            lambda: region_growing(
+                volume, seed, tolerance, version=version, cancelled=cancel_event.is_set
+            ),
             self._segmentation_ready,
+            cancel_event=cancel_event,
         )
 
     def _segmentation_ready(self, segmentation: Segmentation) -> None:
@@ -321,7 +330,7 @@ class MainWindow(QMainWindow):
             else:
                 self.statusBar().showMessage(f"Сохранено: {saved.name}")
 
-    def _submit(self, function, callback) -> None:
+    def _submit(self, function, callback, *, cancel_event: threading.Event | None = None) -> None:
         self._task_token += 1
         token = self._task_token
         runner = TaskRunner(token, function)
@@ -336,12 +345,26 @@ class MainWindow(QMainWindow):
         runner.signals.finished.connect(self._task_finished)
         self._busy_tokens.add(token)
         self._runners[token] = runner
+        if cancel_event is not None:
+            self._cancel_events[token] = cancel_event
         self._update_actions()
         self.thread_pool.start(runner)
 
     def _task_finished(self, token: int) -> None:
         self._busy_tokens.discard(token)
         self._runners.pop(token, None)
+        self._cancel_events.pop(token, None)
+        self._update_actions()
+
+    def cancel_current_task(self) -> None:
+        if not self._busy_tokens:
+            return
+        for event in self._cancel_events.values():
+            event.set()
+        self._task_token += 1
+        self.statusBar().showMessage(
+            "Отмена запрошена; нативная операция завершится в фоне, её результат будет отброшен"
+        )
         self._update_actions()
 
     def _invalidate_segmentation(self) -> None:
@@ -357,6 +380,7 @@ class MainWindow(QMainWindow):
     def _update_actions(self) -> None:
         busy = bool(self._busy_tokens)
         self.load_button.setEnabled(not busy)
+        self.cancel_button.setEnabled(busy)
         self.region_button.setEnabled(not busy and self.volume is not None and self.seed_zyx is not None)
         self.marching_button.setEnabled(not busy and self.segmentation is not None)
         self.mask_button.setEnabled(self.segmentation is not None)

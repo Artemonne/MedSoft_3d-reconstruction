@@ -10,6 +10,7 @@ from ct_reconstruction.mesh_processing import (
     repair_mesh,
     smooth_mesh,
 )
+from ct_reconstruction.errors import MeshError
 from ct_reconstruction.models import Mesh
 from ct_reconstruction.surface import from_pyvista, mesh_metrics
 
@@ -55,4 +56,10 @@ def test_stl_round_trip_uses_active_mesh_coordinates(tmp_path):
     assert destination.suffix == ".stl"
     assert loaded.n_cells == len(mesh.faces)
     assert loaded.bounds == pytest.approx(mesh_metrics(mesh)["bounds"], abs=0.001, rel=1e-5)
+
+
+def test_repair_timeout_preserves_parent_process():
+    mesh = model_from_poly(pv.Sphere(radius=5).triangulate())
+    with pytest.raises(MeshError, match="время"):
+        repair_mesh(mesh, hole_size_mm=1, timeout_seconds=0.0001)
 
