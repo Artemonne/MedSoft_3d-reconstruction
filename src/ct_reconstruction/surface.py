@@ -15,7 +15,9 @@ def marching_cubes_surface(
     mask = segmentation.mask
     if not mask.any():
         raise MeshError("Маска пуста; поверхность построить нельзя")
-    padded = np.pad(mask.astype(np.uint8), 1, mode="constant", constant_values=0)
+    # Keep the padded source boolean.  scikit-image performs its own float32
+    # conversion, so an eager uint8 copy only increases peak memory.
+    padded = np.pad(mask, 1, mode="constant", constant_values=False)
     dz, dr, dc = geometry.spacing_zyx_mm
     try:
         vertices_zyx, faces, _normals, _values = marching_cubes(

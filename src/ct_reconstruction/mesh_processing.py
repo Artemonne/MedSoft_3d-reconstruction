@@ -27,7 +27,8 @@ def smooth_mesh(
     processed = from_pyvista(
         result, source=mesh, operation=f"smooth({iterations},{relaxation:g})"
     )
-    _ensure_usable(processed)
+    result_metrics = _ensure_usable(processed)
+    _ensure_topology_preserved(mesh, result_metrics)
     return processed
 
 
@@ -44,7 +45,8 @@ def decimate_mesh(mesh: Mesh, *, reduction: float = 0.5) -> Mesh:
     processed = from_pyvista(
         result, source=mesh, operation=f"decimate({reduction:g})"
     )
-    _ensure_usable(processed)
+    result_metrics = _ensure_usable(processed)
+    _ensure_topology_preserved(mesh, result_metrics)
     if len(processed.faces) >= len(mesh.faces):
         raise MeshError("Упрощение не уменьшило число треугольников")
     return processed
@@ -88,6 +90,7 @@ def repair_mesh(
 ) -> Mesh:
     if not np.isfinite(hole_size_mm) or hole_size_mm <= 0:
         raise MeshError("Максимальный размер отверстия должен быть положительным")
+    before = mesh_metrics(mesh)
     context = mp.get_context("spawn")
     parent_output, child_output = context.Pipe(duplex=False)
     process = context.Process(
@@ -125,7 +128,24 @@ def repair_mesh(
         raise MeshError(f"Ремонт сетки не выполнен: {message}")
     operation = f"repair(hole={hole_size_mm:g},largest={keep_largest_component})"
     repaired = Mesh(vertices, faces, mesh.segmentation_version, [*mesh.operations, operation])
-    _ensure_usable(repaired)
+    after = _ensure_usable(repaired)
+    repaired_boundaries = after["boundary_edges"] < before["boundary_edges"]
+    repaired_non_manifold = after["non_manifold_edges"] < before["non_manifold_edges"]
+    removed_components = (
+        keep_largest_component
+        and before["components"] > 1
+        and after["components"] == 1
+    )
+    if not (repaired_boundaries or repaired_non_manifold or removed_components):
+        if (
+            before["boundary_edges"] == 0
+            and before["non_manifold_edges"] == 0
+            and (not keep_largest_component or before["components"] <= 1)
+        ):
+            raise MeshError("Исправление не требуется: выбранных дефектов не обнаружено")
+        raise MeshError(
+            "Заданные параметры repair не исправили обнаруженные дефекты сетки"
+        )
     return repaired
 
 
@@ -145,9 +165,20 @@ def export_stl(mesh: Mesh, path: str | Path) -> Path:
     return destination
 
 
-def _ensure_usable(mesh: Mesh) -> None:
+def _ensure_usable(mesh: Mesh) -> dict[str, object]:
     metrics = mesh_metrics(mesh)
     if metrics["vertices"] < 3 or metrics["triangles"] < 1:
         raise MeshError("Операция вернула пустую сетку")
     if metrics["non_manifold_edges"]:
         raise MeshError("После операции появились non-manifold рёбра")
+    return metrics
+
+
+def _ensure_topology_preserved(
+    source: Mesh, result_metrics: dict[str, object]
+) -> None:
+    before = mesh_metrics(source)
+    if result_metrics["boundary_edges"] != before["boundary_edges"]:
+        raise MeshError("Операция изменила число открытых граничных рёбер")
+    if result_metrics["components"] != before["components"]:
+        raise MeshError("Операция изменила число связных компонент")

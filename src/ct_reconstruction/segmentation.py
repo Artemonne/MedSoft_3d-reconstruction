@@ -45,27 +45,50 @@ def region_growing(
         raise SegmentationError("Исходная точка попадает в недопустимый/padding-воксель")
 
     accepted = np.zeros(shape, dtype=np.bool_)
-    accepted[seed_zyx] = True
-    queue: deque[tuple[int, int, int]] = deque([seed_zyx])
+    accepted_flat = accepted.ravel()
+    data_flat = volume.data_hu.ravel()
+    valid_flat = volume.valid_voxels.ravel()
+    _, rows, columns = shape
+    plane_size = rows * columns
+    seed_flat = (seed_zyx[0] * rows + seed_zyx[1]) * columns + seed_zyx[2]
+    accepted_flat[seed_flat] = True
+    # Flat integer indices keep the frontier substantially smaller than a deque
+    # of Python (z, y, x) tuples for large homogeneous regions.
+    queue: deque[int] = deque([seed_flat])
     processed = 0
-    offsets = ((-1, 0, 0), (1, 0, 0), (0, -1, 0), (0, 1, 0), (0, 0, -1), (0, 0, 1))
+    accepted_count = 1
     while queue:
         if cancelled is not None and processed % 4096 == 0 and cancelled():
             raise SegmentationError("Наращивание области отменено")
         point = queue.popleft()
-        point_hu = float(volume.data_hu[point])
-        for dz, dy, dx in offsets:
-            neighbor = (point[0] + dz, point[1] + dy, point[2] + dx)
-            if any(neighbor[axis] < 0 or neighbor[axis] >= shape[axis] for axis in range(3)):
+        point_hu = float(data_flat[point])
+        z, within_plane = divmod(point, plane_size)
+        y, x = divmod(within_plane, columns)
+        neighbors: list[int] = []
+        if z:
+            neighbors.append(point - plane_size)
+        if z + 1 < shape[0]:
+            neighbors.append(point + plane_size)
+        if y:
+            neighbors.append(point - columns)
+        if y + 1 < rows:
+            neighbors.append(point + columns)
+        if x:
+            neighbors.append(point - 1)
+        if x + 1 < columns:
+            neighbors.append(point + 1)
+        for neighbor in neighbors:
+            if accepted_flat[neighbor] or not valid_flat[neighbor]:
                 continue
-            if accepted[neighbor] or not volume.valid_voxels[neighbor]:
-                continue
-            if abs(float(volume.data_hu[neighbor]) - point_hu) <= tolerance_hu:
-                accepted[neighbor] = True
+            if abs(float(data_flat[neighbor]) - point_hu) <= tolerance_hu:
+                accepted_flat[neighbor] = True
                 queue.append(neighbor)
+                accepted_count += 1
         processed += 1
         if progress is not None and processed % 16384 == 0:
-            progress(int(accepted.sum()))
+            progress(accepted_count)
+    if progress is not None:
+        progress(accepted_count)
     return Segmentation(
         mask=accepted,
         method="region_growing",

@@ -52,6 +52,17 @@ def test_region_growing_cancellation_never_publishes_partial_mask():
         )
 
 
+def test_region_growing_reports_incremental_count_without_rescanning_result():
+    volume = make_volume(np.zeros((30, 30, 30), dtype=np.float32))
+    updates: list[int] = []
+    result = region_growing(
+        volume, (0, 0, 0), 0, version=1, progress=updates.append
+    )
+    assert updates
+    assert updates == sorted(updates)
+    assert updates[-1] == result.mask.size
+
+
 @pytest.mark.parametrize(
     "seed,tolerance,valid,message",
     [((-1, 0, 0), 1, None, "вне"), ((0, 0, 0), -1, None, "неотрицательной"),
